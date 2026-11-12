@@ -23,24 +23,24 @@ jobs:
       # packages that you sign yourself (no Apple Developer account needed to build).
       - name: Build for iPhone and iPad
         run: |
-          set -o pipefail
           xcodebuild build \
             -project Ironlog.xcodeproj -scheme Ironlog -configuration Release \
             -destination 'generic/platform=iOS' -derivedDataPath build/ios \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            | tee ios.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
-          test "${PIPESTATUS[0]}" -eq 0 || { grep -E "error:" ios.log | sort -u; exit 1; }
+            > ios.log 2>&1 || { grep -E "error:" ios.log | sort -u; tail -40 ios.log; exit 1; }
+          grep -E "warning:" ios.log | sort -u | head -50 || true
+          tail -3 ios.log
 
       - name: Build for Mac
         if: success() || failure()
         run: |
-          set -o pipefail
           xcodebuild build \
             -project Ironlog.xcodeproj -scheme Ironlog -configuration Release \
             -destination 'generic/platform=macOS' -derivedDataPath build/mac \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            | tee mac.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
-          test "${PIPESTATUS[0]}" -eq 0 || { grep -E "error:" mac.log | sort -u; exit 1; }
+            > mac.log 2>&1 || { grep -E "error:" mac.log | sort -u; tail -40 mac.log; exit 1; }
+          grep -E "warning:" mac.log | sort -u | head -50 || true
+          tail -3 mac.log
 
       - name: Package
         run: |
