@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iPhone/iPad and Mac
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcodebuild -version
+          xcodebuild -list -project Ironlog.xcodeproj
+
+      # Unsigned builds: they check the code compiles and give installable
+      # packages that you sign yourself (no Apple Developer account needed to build).
+      - name: Build for iPhone and iPad
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Ironlog.xcodeproj -scheme Ironlog -configuration Release \
+            -destination 'generic/platform=iOS' -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tee ios.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          test "${PIPESTATUS[0]}" -eq 0 || { grep -E "error:" ios.log | sort -u; exit 1; }
+
+      - name: Build for Mac
+        if: success() || failure()
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Ironlog.xcodeproj -scheme Ironlog -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath build/mac \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tee mac.log | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          test "${PIPESTATUS[0]}" -eq 0 || { grep -E "error:" mac.log | sort -u; exit 1; }
+
+      - name: Package
+        run: |
+          mkdir -p out/Payload
+          cp -R build/ios/Build/Products/Release-iphoneos/Ironlog.app out/Payload/
+          (cd out && zip -qry Ironlog-unsigned.ipa Payload && rm -rf Payload)
+          # Ad-hoc sign the Mac app so it launches on Apple Silicon.
+          codesign --force --deep --sign - build/mac/Build/Products/Release/Ironlog.app
+          ditto -c -k --keepParent build/mac/Build/Products/Release/Ironlog.app out/Ironlog-mac.zip
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ironlog-builds
+          path: out/
+          retention-days: 30
